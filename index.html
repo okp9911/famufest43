@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>FAMUFEST films</title>
+<style>
+  :root{--bg:#E5E4DF;--ink:#1d1d1b;--ink2:#6b6a64}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);touch-action:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block;width:100vw;height:100vh;cursor:grab}
+  canvas.over{cursor:pointer}
+  canvas.drag{cursor:grabbing}
+  #info{position:fixed;z-index:2;left:max(32px,env(safe-area-inset-left,0px));bottom:calc(30px + env(safe-area-inset-bottom,0px));max-width:min(80vw,820px);color:#fff;text-shadow:0 1px 18px rgba(0,0,0,.45);font:500 19px/1.25 "Helvetica Neue",Helvetica,Arial,sans-serif;letter-spacing:-.01em;opacity:0;transition:opacity .35s;pointer-events:none}
+  #info .t{font-size:clamp(22px,2.4vw,34px);font-weight:500}#info .a{font-size:clamp(13px,1.1vw,16px);font-weight:400;color:rgba(255,255,255,.82);margin-top:6px}
+  #info.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="cv" aria-label="FAMUFEST films: drag to move, wheel or pinch to zoom, click a frame to open it"></canvas>
+<div id="info"><div class="t"></div><div class="a"></div></div>
+<script>
+(()=>{
+"use strict";
+/* ---------------------------------------------------------------------------------------------
+   An endless space of film frames at different depths. Drag (with inertia) to move, wheel / pinch
+   to fly in and out, the cursor works as a magnifier, click a frame to open it full screen with its
+   title, author and duration. Space repeats in every direction, so there is no edge. Frames out of
+   focus (too near or too far) take the Figma "Lens distortion" shader look.
+   Data: films.csv (video;title;author;duration), clips in films/, posters in posters/<name>.jpg.
+   URL options: ?wheel=ctrl (wheel zooms only with Ctrl/⌘, so the page can scroll), ?live=4.
+--------------------------------------------------------------------------------------------- */
+const Q=new URLSearchParams(location.search),WHEEL_CTRL=Q.get('wheel')==='ctrl',LIVE=Math.max(1,+(Q.get('live')||4));
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),info=document.getElementById('info');
+const BG='#E5E4DF',REF_W=1440,REF_H=900,FRAMES_PER_SCREEN=15;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v,lerp=(a,b,t)=>a+(b-a)*t,ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+function rng(seed){let s=seed>>>0||1;return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const hash=(a,b)=>{let h=Math.imul(a*374761393+b*668265263,1274126177);h^=h>>>13;h=Math.imul(h,1103515245);return((h^h>>>16)>>>0)/4294967296};
+
+/* ---------- canvas size ---------- */
+let W=0,H=0,DPR=1;
+function resize(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR)}
+resize();addEventListener('resize',resize);
+const baseZ=()=>Math.max(W/REF_W,H/REF_H)*.92;
+
+/* ---------- the Figma "Lens distortion" shader (lateral mode), ported to WebGL ---------- */
+function makeLens(){
+  const c=document.createElement('canvas'),gl=c.getContext('webgl',{premultipliedAlpha:true,preserveDrawingBuffer:true,alpha:true});if(!gl)return null;
+  const TAPS=32;
+  const vs='attribute vec2 p;varying vec2 uv;void main(){uv=p*.5+.5;gl_Position=vec4(p,0.,1.);}';
+  const fs=`precision highp float;varying vec2 uv;uniform sampler2D tex;uniform vec2 dims,center;uniform float amount,chroma,radius;
+  vec4 samp(vec2 lp){vec2 u=lp/dims;if(u.x<0.||u.x>1.||u.y<0.||u.y>1.)return vec4(0.);vec4 c=texture2D(tex,u);return vec4(c.rgb*c.a,c.a);}
+  vec2 lens(vec2 lp,float a){vec2 c=lp-center;vec2 n=c/radius;float d2=dot(n,n);return c*(1.+a*(d2+d2*d2))+center;}
+  void main(){vec2 lp=vec2(uv.x,1.-uv.y)*dims;vec4 acc=vec4(0.);
+    for(int j=0;j<4;j++){vec2 jit=j==0?vec2(0.):j==1?vec2(.5,-.333333):j==2?vec2(-.25,.333333):vec2(.25,-.111111);vec2 tp=lp+jit*1.4;vec4 tc=vec4(0.);float ws=0.;
+      for(int i=0;i<${TAPS};i++){float fi=float(i)/float(${TAPS-1})-.5;float w=1.-abs(fi*2.);
+        vec4 r=samp(lens(tp,amount+(fi+.5)*chroma)),g=samp(lens(tp,amount+fi*chroma)),b=samp(lens(tp,amount+(fi-.5)*chroma));
+        float al=max(max(r.a,g.a),b.a);float rs=r.a>.01?r.r/r.a:1.,gs=g.a>.01?g.g/g.a:1.,bs=b.a>.01?b.b/b.a:1.;
+        tc+=vec4(rs*al,gs*al,bs*al,al)*w;ws+=w;}
+      acc+=tc/max(ws,1e-4);}
+    gl_FragColor=acc/4.;}`;
+  const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o};
+  const pr=gl.createProgram();gl.attachShader(pr,sh(gl.VERTEX_SHADER,vs));gl.attachShader(pr,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);
+  const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  const tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
+  [gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER].forEach(k=>gl.texParameteri(gl.TEXTURE_2D,k,gl.LINEAR));
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  const U=n=>gl.getUniformLocation(pr,n),u={dims:U('dims'),center:U('center'),amount:U('amount'),chroma:U('chroma'),radius:U('radius')};
+  return(src,w,h,amount,aberr,cx,cy)=>{c.width=w;c.height=h;gl.viewport(0,0,w,h);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);
+    gl.uniform2f(u.dims,w,h);gl.uniform2f(u.center,w*cx,h*cy);gl.uniform1f(u.amount,amount);gl.uniform1f(u.chroma,(1+Math.abs(amount))*aberr);gl.uniform1f(u.radius,Math.hypot(w,h)/2);
+    gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);gl.drawArrays(gl.TRIANGLES,0,6);return c}}
+let LENS=null;try{LENS=makeLens()}catch(e){LENS=null}
+
+/* ---------- films ---------- */
+const films=[];   // {poster:Image|Canvas, clip:url, title, author, duration, video, live, baked:{heavy,light}}
+function parseCSV(t){t=t.replace(/^﻿/,'');const h0=t.split(/\r?\n/)[0],d=h0.split(';').length>h0.split(',').length?';':',',rows=[];let row=[],f='',q=false;
+  for(let i=0;i<t.length;i++){const c=t[i];if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}else if(c==='"')q=true;else if(c===d){row.push(f);f=''}
+    else if(c==='\n'||c==='\r'){if(c==='\r'&&t[i+1]==='\n')i++;row.push(f);f='';if(row.some(x=>x.trim()))rows.push(row);row=[]}else f+=c}
+  row.push(f);if(row.some(x=>x.trim()))rows.push(row);const h=(rows.shift()||[]).map(x=>x.trim().toLowerCase());return rows.map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]||'').trim()])))}
+const loadImg=url=>new Promise((res,rej)=>{const i=new Image();i.decoding='async';i.onload=()=>res(i);i.onerror=rej;i.src=url});
+async function posterFromVideo(url){const v=document.createElement('video');v.muted=true;v.playsInline=true;v.preload='auto';v.src=url;
+  await new Promise((res,rej)=>{v.onloadeddata=res;v.onerror=rej;setTimeout(()=>rej(new Error('timeout')),20000)});
+  await new Promise(res=>{v.onseeked=res;v.currentTime=Math.min(1,(v.duration||3)/3);setTimeout(res,4000)});
+  const c=document.createElement('canvas');c.width=640;c.height=Math.round(640*v.videoHeight/v.videoWidth)||360;c.getContext('2d').drawImage(v,0,0,c.width,c.height);v.removeAttribute('src');v.load();return c}
+async function loadFilms(){
+  let rows=[];try{const r=await fetch('films.csv',{cache:'no-cache'});if(r.ok)rows=parseCSV(await r.text())}catch(e){}
+  const items=rows.map(r=>{const f=(r.video||r.file||'').trim();if(!f)return null;const stem=f.replace(/\.[^.]+$/,''),img=/\.(jpe?g|png|webp|gif)$/i.test(f),enc=encodeURIComponent;
+    return{poster:img?'films/'+enc(f):'posters/'+enc(stem)+'.jpg',clip:img?null:'films/'+enc(f),title:r.title||'',author:r.author||'',duration:r.duration||''}}).filter(Boolean);
+  const out=new Array(items.length);let nx=0;
+  const work=async()=>{while(nx<items.length){const i=nx++,it=items[i];let p=null;try{p=await loadImg(it.poster)}catch(e){if(it.clip)try{p=await posterFromVideo(it.clip)}catch(e2){}}
+    if(p)out[i]={...it,poster:p,video:null,live:false,baked:{}}}};
+  await Promise.all(Array.from({length:6},work));
+  for(const f of out)if(f)films.push(f);
+  buildField();
+}
+
+/* ---------- baking the shader look into small cached images ---------- */
+const bakeQ=[];
+function want(f,kind){const b=f.baked[kind];if(b)return b.c?b:null;f.baked[kind]={};bakeQ.push([f,kind]);return null}
+function bake(f,kind){const i=films.indexOf(f),h1=hash(i,kind*7+1),h2=hash(i,kind*7+2),h3=hash(i,kind*7+3),h4=hash(i,kind*7+4);
+  // heavy: half pushed outwards (warm orange / yellow / red rims), half pulled inwards (blue / pink / teal smears); light: pulled inwards, a thin rainbow edge
+  const w=400,h=225,pr=kind===2?(h1<.5?{d:.15+.4*h1,ab:.75+.25*h2,cx:.3+.4*h3,cy:.12+.3*h4,blur:.06,pad:.24,sat:1.25}:{d:-(.5+.8*(h1-.5)),ab:.85+.15*h2,cx:.3+.4*h3,cy:.2+.4*h4,blur:.06,pad:.24,sat:1.35}):{d:-(.12+.1*h1),ab:.25+.2*h2,cx:.35+.3*h3,cy:.3+.3*h4,blur:.006,pad:.04,sat:1.1};
+  const src=document.createElement('canvas');src.width=w;src.height=h;drawCover(src.getContext('2d'),f.poster,0,0,w,h);
+  let out=src;if(LENS){try{out=LENS(src,w,h,pr.d,pr.ab,pr.cx,pr.cy)}catch(e){out=src}}
+  const c=document.createElement('canvas'),px=Math.round(w*pr.pad),py=Math.round(h*pr.pad);c.width=w+px*2;c.height=h+py*2;const g=c.getContext('2d');
+  g.filter=`blur(${(w*pr.blur*(LENS?1:1.6)).toFixed(1)}px) saturate(${LENS?pr.sat:1.6})`;g.drawImage(out,px,py,w,h);g.filter='none';
+  f.baked[kind]={c,padX:pr.pad,padY:pr.pad,t:performance.now()}}
+
+
+/* ---------- live clips ---------- */
+function setLive(f,on){if(!f.clip||f.live===on)return;f.live=on;
+  if(on){const v=f.video||(f.video=Object.assign(document.createElement('video'),{muted:true,loop:true,playsInline:true,preload:'auto'}));v.setAttribute('playsinline','');v.src=f.clip;v.play().catch(()=>{})}
+  else if(f.video){f.video.pause();f.video.removeAttribute('src');f.video.load()}}
+const playing=f=>f.live&&f.video&&f.video.readyState>=2;
+
+
+/* ---------- the endless space: one block of slots, repeated in x, y and in depth ----------
+   Every slot has a world position (x, y) and a depth D. The camera sits at (cx, cy) and flies along
+   depth (cz). A frame at distance r in front of the camera is drawn at scale F/r, so near frames are
+   big and move fast, far ones are small and slow: real parallax. Distance wraps, so flying forward or
+   back never runs out of frames, and x / y wrap with period P, so there is no edge either.
+   Depth of field: frames near the focus distance are sharp; nearer and farther ones melt into the
+   shader look (thin rainbow edge first, then the full blob). */
+let slots=[],P=4000,MAXW=800;
+const NEAR=.32,FAR=3.4,DR=FAR-NEAR;          // distances in units of the focus distance
+function buildField(){
+  const n=Math.max(films.length,140),r=rng(43),area=REF_W*REF_H/FRAMES_PER_SCREEN;P=Math.sqrt(n*area);slots=[];
+  for(let k=0;k<n;k++){const w=Math.exp(Math.log(200)+(Math.log(520)-Math.log(200))*r()*r());
+    const q=(k+r())/n,d=q<.14?NEAR+(.62-NEAR)*q/.14:q<.78?.62+(1.7-.62)*(q-.14)/.64:1.7+(FAR-1.7)*(q-.78)/.22;   // 14% near, 64% in focus, 22% far
+    slots.push({x:r()*P,y:r()*P,d,w,h:w*9/16,film:-1,seed:k})}
+  // shuffle depths so neighbours in x/y sit at different depths, then spread the films
+  for(let i=slots.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[slots[i].d,slots[j].d]=[slots[j].d,slots[i].d]}
+  if(films.length){const ord=films.map((_,i)=>i);for(let i=ord.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[ord[i],ord[j]]=[ord[j],ord[i]]}slots.forEach((s,k)=>s.film=ord[k%ord.length])}
+  MAXW=Math.max(...slots.map(s=>s.w))*1.8;
+}
+
+/* ---------- camera ---------- */
+const cam={x:0,y:0,z:0};let czT=0,vel={x:0,y:0},czVel=0,lastInteract=-1e9,drift={a:Math.random()*6.28};
+function startCam(){cam.x=P*.5;cam.y=P*.5;cam.z=czT=0}
+const unit=()=>baseZ();                       // screen px per world unit at the focus distance
+function dolly(dz,sx,sy){czT+=dz;             // fly towards the point under the cursor
+  if(sx!=null){cam.x+=(sx-W/2)/unit()*dz*.9;cam.y+=(sy-H/2)/unit()*dz*.9}}
+
+/* ---------- drawing ---------- */
+function drawCover(g,img,x,y,w,h){const iw=img.videoWidth||img.naturalWidth||img.width,ih=img.videoHeight||img.naturalHeight||img.height;if(!iw||!ih)return;
+  const s=Math.max(w/iw,h/ih),sw=w/s,sh=h/s;g.drawImage(img,(iw-sw)/2,(ih-sh)/2,sw,sh,x,y,w,h)}
+function drawContain(g,img,x,y,w,h){const iw=img.videoWidth||img.naturalWidth||img.width,ih=img.videoHeight||img.naturalHeight||img.height;if(!iw||!ih)return;
+  const s=Math.min(w/iw,h/ih),dw=iw*s,dh=ih*s;g.drawImage(img,x+(w-dw)/2,y+(h-dh)/2,dw,dh);return[x+(w-dw)/2,y+(h-dh)/2,dw,dh]}
+let grain=null;
+function makeGrain(){grain=document.createElement('canvas');grain.width=grain.height=180;const g=grain.getContext('2d'),d=g.createImageData(180,180);
+  for(let i=0;i<d.data.length;i+=4){const v=200+Math.random()*55;d.data[i]=d.data[i+1]=d.data[i+2]=v;d.data[i+3]=255}g.putImageData(d,0,0)}
+const smooth=(x,a,b)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+// how far out of focus a frame at distance r is: 0 sharp … 1 full blob
+const defocus=r=>Math.max(1-smooth(r,.4,.66),smooth(r,2.1,3.2));
+const mouse={x:-1e4,y:-1e4,in:false},lens={a:0};let hoverKey=null,drawn=[],open=null;
+function frame(now){
+  const dt=Math.min(.05,(now-(frame.last||now))/1000);frame.last=now;const u=unit();
+  // camera: drag inertia, eased dolly, and an idle flow (slow forward flight with a wandering drift)
+  const idleT=now-lastInteract,idle=idleT>3500&&!dragging&&!open,ramp=clamp((idleT-3500)/3000,0,1);
+  if(idle){drift.a+=dt*.045;const sp=10*ramp;vel.x=lerp(vel.x,Math.cos(drift.a)*sp,dt*.7);vel.y=lerp(vel.y,Math.sin(drift.a)*sp,dt*.7);czT+=dt*.035*ramp}
+  if(!dragging){cam.x+=vel.x*dt;cam.y+=vel.y*dt;if(!idle){const fr=Math.exp(-dt*3.2);vel.x*=fr;vel.y*=fr}}
+  cam.z+=(czT-cam.z)*(1-Math.exp(-dt*6));
+  // the loupe follows the mouse and fades in and out with it
+  lens.a+=((mouse.in&&!dragging&&!open?1:0)-lens.a)*(1-Math.exp(-dt*8));
+  for(let n=0;n<3&&bakeQ.length;n++){const [f,k]=bakeQ.shift();bake(f,k)}
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);ctx.fillStyle=BG;ctx.fillRect(0,0,W,H);
+  const L=Math.min(W,H)*.3,K=2.1,items=[];
+  for(const s of slots){if(s.film<0)continue;const f=films[s.film];
+    const r=((s.d-cam.z-NEAR)%DR+DR)%DR+NEAR,k=u/r,fade=smooth(r,NEAR,NEAR+.18)*(1-smooth(r,FAR-.5,FAR)),df=defocus(r);
+    if(fade<=.01)continue;
+    const halfW=(W/2+MAXW*k)/k,halfH=(H/2+MAXW*k)/k,ix0=Math.floor((cam.x-halfW-s.x)/P)+1,ix1=Math.floor((cam.x+halfW-s.x)/P),iy0=Math.floor((cam.y-halfH-s.y)/P)+1,iy1=Math.floor((cam.y+halfH-s.y)/P);
+    for(let ix=ix0;ix<=ix1;ix++)for(let iy=iy0;iy<=iy1;iy++){
+      let cx=(s.x+ix*P-cam.x)*k+W/2,cy=(s.y+iy*P-cam.y)*k+H/2,w=s.w*k,h=s.h*k,m=1;
+      // loupe: frames near the cursor grow and are pushed outwards a little, like under a magnifier
+      if(lens.a>.01){const dx=cx-mouse.x,dy=cy-mouse.y,dd=Math.hypot(dx,dy);if(dd<L){const g=Math.pow(1-(dd/L)*(dd/L),2)*lens.a;m=1+(K-1)*g;cx=mouse.x+dx*(1+(m-1)*.55);cy=mouse.y+dy*(1+(m-1)*.55);w*=m;h*=m}}
+      if(cx+w*.8<0||cx-w*.8>W||cy+h*.8<0||cy-h*.8>H)continue;
+      items.push({key:s.seed+':'+ix+':'+iy,f,cx,cy,w,h,r,m,df,fade})}}
+  // far first; magnified frames on top
+  items.sort((a,b)=>(a.m>1.04?1e3+a.m:-a.r)-(b.m>1.04?1e3+b.m:-b.r));
+  drawn=[];const big=[];
+  for(const it of items){if(open&&open.key===it.key)continue;const {f,cx,cy,w,h,df}=it,x=cx-w/2,y=cy-h/2;
+    // far frames sink into the background a little (atmosphere)
+    const fog=smooth(it.r,1.7,FAR)*.4,a=it.fade;
+    const aSharp=1-smooth(df,.12,.4),aLight=smooth(df,.08,.3)*(1-smooth(df,.55,.85)),aHeavy=smooth(df,.5,.85);
+    if(aSharp>.01){ctx.globalAlpha=a*aSharp;drawCover(ctx,playing(f)?f.video:f.poster,x,y,w,h)}
+    if(aLight>.01){const b=want(f,1);if(b){ctx.globalAlpha=a*aLight*clamp((now-b.t)/500,0,1);const pw=w*(1+2*b.padX),ph=h*(1+2*b.padY);ctx.drawImage(b.c,cx-pw/2,cy-ph/2,pw,ph)}}
+    if(aHeavy>.01){const b=want(f,2);if(b){ctx.globalAlpha=a*aHeavy*clamp((now-b.t)/500,0,1);const pw=w*(1+2*b.padX),ph=h*(1+2*b.padY);ctx.drawImage(b.c,cx-pw/2,cy-ph/2,pw,ph)}}
+    if(fog>.01){ctx.globalAlpha=fog*a;ctx.fillStyle=BG;ctx.fillRect(x,y,w,h)}
+    ctx.globalAlpha=1;
+    drawn.push({key:it.key,x,y,w,h,f});if(df<.2&&w>230)big.push({f,area:w*h})}
+  if(!grain)makeGrain();ctx.save();ctx.globalCompositeOperation='multiply';ctx.globalAlpha=.11;const pat=ctx.createPattern(grain,'repeat');
+  pat.setTransform(new DOMMatrix().translate((now*.31)%180,(now*.17)%180));ctx.fillStyle=pat;ctx.fillRect(0,0,W,H);ctx.restore();
+
+  // opened film: grows to the whole screen, title / author / duration at the bottom
+  if(open){const o=open,t=ease(clamp((now-o.t0)/520,0,1)),p=o.closing?1-t:t;
+    ctx.fillStyle='#0b0b0a';ctx.globalAlpha=p;ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;
+    const src=playing(o.f)?o.f.video:o.f.poster,iw=src.videoWidth||src.naturalWidth||src.width,ih=src.videoHeight||src.naturalHeight||src.height,ar=iw&&ih?iw/ih:16/9;
+    const s=Math.min(W/ar,H),tw=s*ar,th=s,tx=(W-tw)/2,ty=(H-th)/2;
+    drawCover(ctx,src,lerp(o.from.x,tx,p),lerp(o.from.y,ty,p),lerp(o.from.w,tw,p),lerp(o.from.h,th,p));
+    if(p>.98){const gr=ctx.createLinearGradient(0,H*.68,0,H);gr.addColorStop(0,'rgba(0,0,0,0)');gr.addColorStop(1,'rgba(0,0,0,.55)');ctx.fillStyle=gr;ctx.fillRect(0,H*.68,W,H*.32)}
+    if(!o.closing&&t>=1){info.querySelector('.t').textContent=o.f.title;info.querySelector('.a').textContent=[o.f.author,o.f.duration].filter(Boolean).join(' · ');
+      if(o.f.title||o.f.author||o.f.duration)info.classList.add('on')}else info.classList.remove('on');
+    if(o.closing&&t>=1)open=null}
+  else info.classList.remove('on');
+
+  // which clips play: the open film, the hovered one, then the largest sharp frames on screen
+  const wantLive=new Set();if(open)wantLive.add(open.f);const hd=drawn.find(d=>d.key===hoverKey);if(hd)wantLive.add(hd.f);
+  big.sort((a,b)=>b.area-a.area);for(const b of big){if(wantLive.size>=LIVE)break;wantLive.add(b.f)}
+  frame.n=(frame.n||0)+1;if(frame.n%10===0)for(const f of films)setLive(f,wantLive.has(f));
+  // hover follows the loupe as frames move under a still cursor
+  if(mouse.in&&!dragging&&!open){const d=hit(mouse.x,mouse.y);hoverKey=d?d.key:null;cv.classList.toggle('over',!!d)}
+  requestAnimationFrame(frame)}
+
+/* ---------- input ---------- */
+let dragging=false,ptrs=new Map(),drag=null,pinch=null,moved=0,velS=[];
+const hit=(sx,sy)=>{for(let i=drawn.length-1;i>=0;i--){const d=drawn[i];if(sx>=d.x&&sx<=d.x+d.w&&sy>=d.y&&sy<=d.y+d.h)return d}return null};
+const closeOpen=()=>{if(open&&!open.closing){open.closing=true;open.t0=performance.now()}};
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});lastInteract=performance.now();
+  if(ptrs.size===1){drag={x:e.clientX,y:e.clientY,cx:cam.x,cy:cam.y};moved=0;velS=[];vel.x=vel.y=0;czT=cam.z}
+  else if(ptrs.size===2){const [a,b]=[...ptrs.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),cz:cam.z};drag=null;dragging=false;moved=99}});
+cv.addEventListener('pointermove',e=>{lastInteract=performance.now();mouse.x=e.clientX;mouse.y=e.clientY;mouse.in=e.pointerType==='mouse';
+  if(ptrs.has(e.pointerId))ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pinch&&ptrs.size>=2){const [a,b]=[...ptrs.values()],sc=Math.hypot(a.x-b.x,a.y-b.y)/pinch.d;czT=pinch.cz+(1-1/sc)*.8;return}
+  if(drag&&!open){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;moved=Math.max(moved,Math.hypot(dx,dy));
+    if(moved>4){dragging=true;cv.classList.add('drag');cam.x=drag.cx-dx/unit();cam.y=drag.cy-dy/unit();velS.push({t:performance.now(),x:cam.x,y:cam.y});if(velS.length>6)velS.shift()}}});
+cv.addEventListener('pointerup',e=>{ptrs.delete(e.pointerId);if(ptrs.size<2)pinch=null;
+  if(drag&&moved<6){if(open)closeOpen();else{const d=hit(e.clientX,e.clientY);if(d){open={key:d.key,f:d.f,from:{x:d.x,y:d.y,w:d.w,h:d.h},t0:performance.now()};hoverKey=null}}}
+  else if(dragging&&velS.length>1){const a=velS[0],b=velS[velS.length-1],t=(b.t-a.t)/1000;if(t>0&&performance.now()-b.t<80){vel.x=(b.x-a.x)/t;vel.y=(b.y-a.y)/t}}
+  drag=null;dragging=false;cv.classList.remove('drag');lastInteract=performance.now()});
+cv.addEventListener('pointercancel',e=>{ptrs.delete(e.pointerId);drag=null;pinch=null;dragging=false});
+cv.addEventListener('pointerleave',()=>{mouse.in=false;hoverKey=null});
+cv.addEventListener('wheel',e=>{if(WHEEL_CTRL&&!e.ctrlKey&&!e.metaKey)return;e.preventDefault();lastInteract=performance.now();if(open){if(e.deltaY>0)closeOpen();return}
+  if(e.ctrlKey||Math.abs(e.deltaY)>=Math.abs(e.deltaX))dolly(-e.deltaY*(e.ctrlKey?.006:.0011),e.clientX,e.clientY);
+  else{cam.x+=e.deltaX/unit();vel.x=vel.y=0}},{passive:false});
+addEventListener('keydown',e=>{if(e.key==='Escape')closeOpen()});
+
+resize();loadFilms().then(()=>{startCam();requestAnimationFrame(frame)});
+})();
+</script>
+</body>
+</html>
