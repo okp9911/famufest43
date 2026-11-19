@@ -24,14 +24,6 @@ Zvuk	není potřeba, web ho nepřehrává
 Snímková frekvence	24 nebo 25 fps
 Obsah	bez titulků, log a černých políček na začátku a na konci: ukázka se přehrává ve smyčce
 
-Pojistka: pokud je video větší než 5 MB, větší než 1920×1080, delší než 15 sekund nebo není MP4 (H.264), například MOV z iPhonu, GitHub ho po nahrání sám zmenší na 1280×720, zkrátí na 15 sekund a odstraní zvuk. Přes prohlížeč přijímá GitHub soubory do 25 MB, větší nahrát nejde.
-
-První nastavení repozitáře (jednou)
-Vytvořit veřejný repozitář na GitHubu a nahrát do něj vše z archivu. Zkontrolovat, že v repozitáři je složka .github/workflows se souborem films.yml. Skryté složky se při přetahování někdy nenahrají; pak klikněte na Add file → Create new file, zadejte název .github/workflows/films.yml a vložte do něj obsah souboru z archivu.
-Settings → Pages → Source: Deploy from a branch, větev main, složka / (root) → Save. Za minutu se tam objeví adresa webu ve tvaru https://jmeno.github.io/repozitar/.
-Pokud běh na záložce Actions skončí chybou oprávnění: Settings → Actions → General → Workflow permissions → Read and write permissions → Save.
-For the web developer (embedding)
-
 The mosaic is a static page; this repository is served by GitHub Pages. Embed it with an iframe:
 
 html
