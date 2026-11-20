@@ -1,14 +1,10 @@
-# FAMUFEST: prostor filmů
-
-Nekonečný prostor filmových políček v různé hloubce: dá se táhnout myší (se setrvačností), kolečkem nebo gestem sevření se letí dopředu a dozadu a nikde nekončí. Kurzor funguje jako lupa. Políčka mimo ostrost (příliš blízko nebo daleko) procházejí shaderem Lens distortion z Figmy. Kliknutím se film otevře přes celou obrazovku a dole se zobrazí název, autor a délka. Pozadí #E5E4DF.
-
 ## Jak přidat filmy (vše přes web GitHubu, nic se neinstaluje)
 
 1. **Nahrajte videa.** Otevřete složku `films` → **Add file → Upload files** → přetáhněte ukázky → **Commit changes**.
    - Požadavky na videa najdete níže v části „Jaká mají být videa“.
    - Název souboru může být libovolný, např. `Sůl.mp4`.
 2. **Počkejte 1–3 minuty.** GitHub (záložka **Actions**) sám vytvoří ke každému videu náhled ve složce `posters` a do tabulky `films.csv` přidá řádek pro každý nový soubor.
-3. **Vlastní still (nepovinné).** Pokud chcete u filmu vlastní obrázek místo automatického náhledu, nahrajte ho do složky `posters` se **stejným názvem jako video**, jen s příponou obrázku: k videu `Sůl.mp4` patří `Sůl.jpg` (nebo `.png`, `.webp`). Velikost nevadí, GitHub ho sám zmenší na 960 px. Still se dá nahrát před videem i po něm a GitHub ho nikdy nepřepíše. Chcete-li ho vyměnit, nahrajte nový se stejným názvem; chcete-li zpět automatický náhled, still smažte.
+3. **STILLS.** Pokud chcete u filmu vlastní obrázek místo automatického náhledu, nahrajte ho do složky `posters` se **stejným názvem jako video**, jen s příponou obrázku: k videu `Sůl.mp4` patří `Sůl.jpg` (nebo `.png`, `.webp`). Velikost nevadí, GitHub ho sám zmenší na 960 px. Still se dá nahrát před videem i po něm a GitHub ho nikdy nepřepíše. Chcete-li ho vyměnit, nahrajte nový se stejným názvem; chcete-li zpět automatický náhled, still smažte.
 4. **Vyplňte název, autora a délku.** Otevřete `films.csv` → ikona tužky (**Edit**) → vyplňte řádky → **Commit changes**:
 
 ```
@@ -18,7 +14,7 @@ Noc v lese.mp4;Noc v lese;Petr Svoboda;08:03
 ```
 
 - `video` je název souboru ve složce `films`. Ten neměňte.
-- `title` (název), `author` (autor), `duration` (délka) uvidí návštěvník. Délku pište, jak je vám pohodlné: `14:26` nebo `14 min`.
+- `title` (název), `author` (autor), `duration` (délka) uvidí návštěvník. 
 - Pořadí řádků je pořadí filmů v prostoru.
 - Chcete-li film odebrat, smažte jeho soubor ve složce `films` i jeho řádek v `films.csv`.
 
@@ -36,14 +32,6 @@ Změny se na webu objeví 1–2 minuty po **Commit changes**.
 | Snímková frekvence | 24 nebo 25 fps |
 | Obsah | bez titulků, log a černých políček na začátku a na konci: ukázka se přehrává ve smyčce |
 
-Pojistka: pokud je video větší než 5 MB, větší než 1920×1080, delší než 15 sekund nebo není MP4 (H.264), například MOV z iPhonu, GitHub ho po nahrání sám zmenší na 1280×720, zkrátí na 15 sekund a odstraní zvuk. Přes prohlížeč přijímá GitHub soubory do 25 MB, větší nahrát nejde.
-
-## První nastavení repozitáře (jednou)
-
-1. Vytvořit veřejný repozitář na GitHubu a nahrát do něj vše z archivu. Zkontrolovat, že v repozitáři je složka `.github/workflows` se souborem `films.yml`. Skryté složky se při přetahování někdy nenahrají; pak klikněte na **Add file → Create new file**, zadejte název `.github/workflows/films.yml` a vložte do něj obsah souboru z archivu.
-2. **Settings → Pages** → Source: **Deploy from a branch**, větev `main`, složka `/ (root)` → Save. Za minutu se tam objeví adresa webu: **https://okp9911.github.io/famufest43/**
-3. Pokud běh na záložce **Actions** skončí chybou oprávnění: **Settings → Actions → General → Workflow permissions → Read and write permissions** → Save.
-
 ---
 
 ## Pro webového vývojáře (vložení na web)
@@ -55,8 +43,7 @@ Stránka je statická a běží na GitHub Pages na adrese **https://okp9911.gith
         style="display:block;width:100%;height:90vh;border:0" loading="lazy"></iframe>
 ```
 
-Na telefonu prst uvnitř bloku posouvá prostor filmů místo stránky, proto nechte blok o něco nižší než obrazovku (jako výše, `90vh`) nebo ho umístěte na konec stránky.
-
+Na telefonu prst uvnitř bloku posouvá prostor filmů místo stránky, proto nechte blok o něco nižší než obrazovku (jako výše, `90vh`)
 Parametry v URL (lze kombinovat pomocí `&`):
 
 | Parametr | Co dělá |
