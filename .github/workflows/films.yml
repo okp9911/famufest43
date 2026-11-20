@@ -1,7 +1,7 @@
 name: Prepare films
 on:
   push:
-    paths: ["films/**", "films.csv", "tools/prepare.py"]
+    paths: ["films/**", "posters/**", "films.csv", "tools/prepare.py"]
   workflow_dispatch:
 permissions:
   contents: write
