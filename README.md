@@ -24,18 +24,20 @@ Zvuk	není potřeba, web ho nepřehrává
 Snímková frekvence	24 nebo 25 fps
 Obsah	bez titulků, log a černých políček na začátku a na konci: ukázka se přehrává ve smyčce
 
-The mosaic is a static page; this repository is served by GitHub Pages. Embed it with an iframe:
+Stránka je statická a běží na GitHub Pages na adrese https://okp9911.github.io/famufest43/. Na famufest.cz ji vložte pomocí iframe:
 
 html
-<iframe src="https://USER.github.io/REPO/" title="FAMUFEST films"
-        style="display:block;width:100%;height:100vh;border:0" loading="lazy"></iframe>
+<iframe src="https://okp9911.github.io/famufest43/?wheel=ctrl" title="FAMUFEST films"
+        style="display:block;width:100%;height:90vh;border:0" loading="lazy"></iframe>
 
-URL options (combine with &):
+Na telefonu prst uvnitř bloku posouvá prostor filmů místo stránky, proto nechte blok o něco nižší než obrazovku (jako výše, 90vh) nebo ho umístěte na konec stránky.
 
-Option	Effect
-?wheel=ctrl	the wheel zooms only with Ctrl/⌘ held, so the page keeps scrolling over the block (pinch still zooms). Recommended unless the block is the last thing on the page
-?live=4	how many clips may play at once
+Parametry v URL (lze kombinovat pomocí &):
 
-How it loads: on page load only the posters are fetched (130 films × ~40 KB ≈ 5 MB). A clip is downloaded and played only while its film is open, hovered or among the largest frames on screen, at most 4 at a time, and released when the visitor zooms away.
+Parametr	Co dělá
+?wheel=ctrl	kolečko myši přibližuje jen se stisknutým Ctrl/⌘, takže stránka se nad blokem dál normálně posouvá (gesto sevření na touchpadu přibližuje dál). Doporučeno, pokud blok není úplně dole na stránce
+?live=4	kolik ukázek se může přehrávat najednou
 
-Data: films.csv (video;title;author;duration, UTF-8, ; or ,), videos in films/, posters in posters/<same name>.jpg. tools/prepare.py (run by .github/workflows/films.yml on every push, needs ffmpeg) makes missing posters, converts non-H.264 or non-MP4 uploads to H.264 MP4 without audio, and adds unlisted files to films.csv. If a poster is missing, the page grabs a frame from the clip itself. GitHub Pages limits: 1 GB site, ~100 GB traffic a month (soft).
+Jak se stránka načítá: při otevření se stahují jen náhledy (130 filmů × cca 40 KB ≈ 5 MB). Ukázka se stáhne a přehrává, jen když je film otevřený, je na něm kurzor nebo patří k největším ostrým políčkům na obrazovce, maximálně 4 najednou, a po oddálení se zase uvolní.
+
+Data: films.csv (video;title;author;duration, UTF-8, oddělovač ; nebo ,), videa ve složce films/, náhledy v posters/<stejný název>.jpg. Skript tools/prepare.py (spouští ho .github/workflows/films.yml při každém nahrání, potřebuje ffmpeg) vytvoří chybějící náhledy, převede videa, která nejsou H.264 MP4, na H.264 MP4 bez zvuku a doplní do films.csv soubory, které tam chybí. Pokud náhled chybí, stránka si vezme políčko přímo z ukázky. Limity GitHub Pages: web do 1 GB, provoz cca 100 GB měsíčně (měkký limit).
