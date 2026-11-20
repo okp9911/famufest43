@@ -1,3 +1,3 @@
 # films
 
-Сюда загружать отрывки фильмов (MP4 или MOV, до 25 МБ). После загрузки GitHub сам сделает превью и добавит строку в films.csv.
+Sem nahrávejte ukázky filmů (MP4 nebo MOV, do 25 MB). Po nahrání GitHub sám vytvoří náhled a přidá řádek do films.csv.
